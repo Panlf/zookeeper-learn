@@ -1,0 +1,509 @@
+Zookeeper
+	Zookeeper是一个开源的分布式协调服务，提供分布式数据的一致性解决方案，
+	分布式应用程序可以实现数据发布订阅、负载均衡、命名服务、集群管理分布式锁、分布式队列等功能。
+	
+	Zookeeper提供了分布式数据一致性解决方案
+		数据一致性分为强一致性和最终一致性，强一致性指的如果数据不一致，就不对外提供数据服务，
+		保证用户读取的数据始终一致。数据强一致性只需要通过锁机制即可解决。最终一致性要求数据最终同步即可，没有实时性要求。
+		
+	CAP原则
+		CAP分布式系统中主要指的是一致性(Consistency)、可用性(Availability)和分区容错性(Partition tolerance)
+		
+		一致性
+			强一致性
+		可用性
+			系统提供的服务一直处于可用状态，用户的操作请求在指定的响应时间内响应请求，超出时间范围，认为系统不可用
+		分区容错性
+			分布式系统在遇到任何网络分区故障的时候，仍需要能够保证对外提供一致性和可用性服务，除非是整个网络都发生故障
+			
+		在一个分布式系统中不可能同时满足一致性、可用性、分区容错性，最多满足两个，对于分布式互联网应用而言，
+		必须保证P，所以要不满足CP模型或者AP模型
+		
+	
+	一致性协议
+		事务需要跨多个分布式节点时，为了保证事务的ACID特性，需要选举一个协调者来协调分布式各个节点的调度，
+		基于这个思想衍生了多种一致性协议
+		
+		1）2PC 二阶段提交
+			事务的提交过程分为两个阶段
+				阶段一 提交事务请求
+					1、协调者向所有的参与者节点发送事务内容，询问是否可以执行事务操作，并等待其他参与者节点的反馈
+					2、各参与者节点执行事务操作
+					3、各参与者节点反馈给协调者，事务是否可以执行
+				阶段二	事务的提交
+					根据一阶段各个参与者节点反馈的ack，如果所有参与者节点反馈ack，则执行事务提交，否则中断事务
+				
+					事务提交
+						1、协调者向各个参与者节点发送commit请求
+						2、参与者节点接受到commit请求后，执行事务的提交操作
+						3、各参与者节点完成事务提交后，向协调者返送提交commit成功确认消息
+						4、协调者接受各个参与者节点的ack后，完成事务commit
+					
+					中断事务
+						1、发送回滚请求
+						2、各个参与者节点回滚事务
+						3、反馈给协调者事务回滚结果
+						4、协调者接受各参与者节点ack后回滚事务
+			
+			二阶段提交存在的问题
+				同步阻塞
+					二阶段提交过程中，所有参与事务操作的节点处于同步阻塞状态，无法进行其他的操作
+				单点问题
+					一旦协调者出现单点故障，无法保证事务的一致性操作
+				脑裂导致数据不一致
+					如果分布式节点出现网络分区，某些参与者未收到commit提交命令。则出现部分参与者
+					完成数据提交。未收到commit的命令的参与者则无法进行事务提交，整个分布式系统
+					便出现了数据不一致性现象。
+				 
+		2）3PC 三阶段提交
+			3PC是2PC的改进版，实质是将2PC中提交事务请求拆分成两步，形成了CanCommit、PreCommit、doCommit三个阶段的事务一致性
+			
+			阶段一	Cancommit
+				1、事务询问
+				2、各参与者节点向协调者反馈事务询问响应
+			阶段二	PreCommit
+				根据阶段一的反馈结果分为两种情况
+				1、执行事务预提交
+					1）发送预提交请求
+					协调者向所有参与者节点发送PreCommit请求，进入prepared阶段
+					2）事务预提交
+					各参与者节点接收到preCommit请求后，执行事务操作
+					3）各参与者节点向协调者反馈事务执行
+				2、中断事务	
+					任意一个参与者节点反馈给协调者响应No时，或者在等待超时后，协调者还未收到参与者的反馈，就中断事务，中断事务分为两步
+						1）协调者向各个参与者节点发送abort请求
+						2）参与者收到abort请求，或者等待超时时间后，中断事务
+						
+			阶段三	doCommit
+				1、执行提交
+					1）发送提交请求
+						协调者向所有参与者节点发送doCommit请求
+					2）事务提交
+						各参与者节点接受到doCommit请求后，执行事务提交操作
+					3）反馈事务提交结果
+						各参与者节点完成事务提交以后，向协调者发送ack
+					4）事务完成
+						协调者接受各个参与者反馈的ack后，完成事务
+						
+		3PC相较于2PC而言，解决了协调者挂点后参与者无限阻塞和单点问题，但是仍然无法解决网络分区问题。
+		
+		
+		3）Paxos算法
+			该算法是一种提高分布式系统容错性的一致性算法，解决了3PC中网络分区的问题，paxos算法可以在节点失效、网络分区
+			网络延迟等各种异常情况下保证所有节点都处于同一状态，同时Paxos算法引入了"过半"理论，即少数服务多数原则。
+			
+			基于消息传递且具有高度容错性的一种算法，是目前公认的解决分布式一致性问题最有效的算法
+			解决问题	在分布式系统中，如果产生宕机或者网络异常情况，快速的正确在集群内部对某个数据的值达成一致，
+			并且不管发生任何异常，都不会破坏整个系统的一致性 
+			重要概念	少数服从多数
+			
+			
+			Paxos有三个版本
+				Basic Paxos
+				Multi Paxos
+				Fast Paxos
+			
+			Paxos算法中有四种角色，分别具有三种不同的行为
+				client		产生提案者，系统外部角色，请求发起者，不参与决策
+				proposer	提案提议者
+				acceptor	提案的表决者，即是否accept该提案，只有超过半数以上的acceptor接受了提案
+							该提案才被认为被选定
+				learners	提案的学习者，当提案被选定后，其同步执行提案，不参与决策
+				
+			Paxos算法分为两个阶段	prepare阶段	accept阶段
+				prepare阶段	准备解决
+					1）、proposer提出一个提案，编号为N，发送给所有的acceptor
+					
+					2）、每个表决者都保存自己的accept的最大提案编号maxN，当表决者收到prepare(N)请求时，会比较
+						N与maxN的值，若N小于maxN，则提案已过时，拒绝prepare(N)请求，若N大于等于maxN，则接受提案，
+						并将该表决者曾经接受过的编号最大的提案Proposal(myid,maxN,value)反馈给提议者：其中myid表示
+						表决者acceptor的标识id，maxN表示接受过的最大提案编号maxN，value表示提案内容。若当前表决者未曾
+						accept任何提议，会将proposal(myid,null,null)反馈给提议者。
+					n>maxN	接受提案，进行响应
+					n<maxN 	拒绝提案，不会响应
+				accept阶段	同意阶段
+					1）提议者proposal发出prepare(N),若收到超过半数表决者acceptor的反馈，
+						proposal将真正的提案内容proposal(N,value)发送给所有表决者
+					2）表决者acceptor接受提议者发送的proposal(N,value)提案后，会将自己曾经accept过的最大提案编码maxN和反馈
+						过的prepare的最大编号，若N大于这两个编号，则当前表决者accept该提案，并反馈给提议者。否则拒绝该提议。
+					3）若提议者没有收到半数以上的表决者accept反馈，则重新进入prepare阶段，递增提案编号，重新提出prepare请求。
+						若收到半数以上的accept，则其他未向提议者反馈的表决者称为learner，主动同步提议者的提案。
+						
+					n>=maxN 同意提案  进行响应
+					n<maxN 	拒绝提案，不会响应
+					
+			Basic Paxos算法存在活锁问题或dueling，而且较难实现
+			
+		4）ZAB协议	Fast Paxos
+			由于paxos算法实现起来较难，存在活锁和全序问题(无法保证两次最终提交的顺序)，所以
+			Zookeeper并没有使用paxos作为一致性协议，而是使用了ZAB协议。
+			
+			ZAB Zookeeper Atomic Broadcast	是一种支持崩溃恢复的原子广播协议，基于Fast Paxos算法
+			
+			Zookeeper使用单一主进程Leader用于处理客户端所有事物请求，即写请求。当服务器数据发生变更，集群采用ZAB原子广播协议，
+				以事物提交proposal的形式广播到所有的副本进程，每个事物分配一个全局的递增的事务编号xid。
+				
+			若客户端提交的请求为读请求时，则接受请求的节点直接根据自己保存的数据响应。若是写请求，且当前节点不是leader，
+			那么该节点就会将请求转发给leader，leader会以提案的方式广播此写请求，如果超过半数的节点同意写请求，则该请求就会提交。
+			leader 会通知所有订阅者同步数据。
+			
+			
+		Zookeeper有三种角色
+			为了避免zk的单点问题，zk采用集群方式保证zk高可用 
+				leader
+					leader负责处理集群的写请求，并发起投票，只有超过半数的节点同意后才会提交该写请求
+				follower
+					处理读请求，响应结果。	转发写请求到leader，在选举leader过程中参与投票 
+				observer
+					observer可以理解为没有投票权的follower．主要职责是协助follower处理读请求。
+					那么当整个zk集群读请求负载很高时，为什么不增加follower节点呢？原因是增加follower节点会让
+					leader在提出写请求提案时，需要半数以上的follower投票节点同意，这样会增加leader和follower的通信压力，降低写操作效率。
+		
+		Zookeeper两种模式
+			恢复模式    
+				当服务启动或领导崩溃后，zk进入恢复状态，选举leader，leader选出后．将完成leader和其他机器的数据同步，
+				当大多数server完成和leader的同步后，恢复模式结束
+			广播模式
+				一旦leader已经和多数的follower进行了状态同步后．进入广播模式。
+				进入广播模式后，如果有新加入的服务器．会自动从leader中同步数据。leader在接收客户端请求后，
+				会生成事务提案广播给其他机器，有超过半数以上的follower同意该提议后，再提交事务。  
+				
+			注意在ZAB的事务的二阶段提交中，移除了事务中断的逻辑，follower要么ack，要么放弃，   
+			leader无需等待所有的follower的ack。
+			
+			
+		zxid
+			zxid是64位长度的Long类型，其中高32位表示纪元epoch，低32位表示事务标识xid。即zxid由两部分构成：epoch和xid
+			
+			每个leader都会具有不同的epoch值，表示一个纪元，每个新的选举开启时都会生成一个新的epoch，新的leader产生，
+			会更新所有zkServer的zxid的epoch，xid是一个依次递增的事务编号。
+			
+		leader选举算法
+			三个核心选举原则
+				1、Zookeeper集群中只有超过了半数以上的服务器启动，集群才能正常工作
+				2、在集群正常工作之前，myid的服务器会给myid大的服务器进行投票。持续到集群正常工作，选出leader
+				3、选择leader之后，之前的服务器状态由looking改变为following，以后的服务器都是follower
+		
+			启动过程
+				每一个server发出一个投票给集群中其他节点
+				收到各个服务器的投票后，判断该投票有效性，比如是否是本轮投票，是否是looking状态
+				处理投票，pk别人的投票和自己的投票，比较规则xid>myid 取大原则
+				统计是否超过半数的接受相同的选票
+				确认leader，改变服务器状态
+				添加新的server，leader已经选举出来，只能从follower身份加入集群
+				
+			消息广播算法
+				一旦进入广播模式，集群中非leader节点接受到事务请求，首先会将事务请求转发给服务器，leader服务器为其
+				生成对应的事务提案proposal，并发送给集群中其他节点，如果过半则事务提交
+				
+				leader接受到消息后，消息通过全局唯一的64位自增事务id，zxid标识
+				
+				leader发送给follower的提案是有序的，leader会创建一个FIFO队列，将提案顺序写入队列中发送给follower
+				
+				follower接受到提案后，会比较提案zxid和本地事务日志最大的zxid，若提案zxid比本地事务id大，将提案记录到
+				本地日志中，反馈ack给leader，否则拒绝
+				
+				leader接收到过banack后，leader向所有的follower发送commit，通知每个follower执行本地事务
+	
+	Zookeeper的基本使用
+		数据结构
+			Zookeeper数据模型的结构与Unix文件系统很类似，整体上可以看作一个树，每个节点称作一个ZNode，每一个ZNode都可以通过
+			其路径唯一标识。
+			
+			ZNode节点类型
+				持久化目录节点	PERSISTENT
+					客户端与Zookeeper断开连接后，该节点依旧存在
+				持久化顺序编号目录节点 PERSISTENT_SEQUENTIAL
+					客户端与Zookeeper断开连接后，该节点依旧存在，Zookeeper会给该节点按照顺序编号
+				临时目录节点	EPHEMERAl
+					客户端与Zookeeper断开连接后，该节点删除
+				临时顺序编号目录节点 EPHEMERAl_SEQUENTIAL
+					客户端与Zookeeper断开连接后，该节点删除，Zookeeper会给该节点按照顺序编号
+				
+		命令行使用
+			zkClient进入客户端
+			1、使用ls命令查看当前znode包含的内容
+				ls patch [watch]
+				
+				ls / 
+			2、查看当前节点数据并能看到更新次数等数据
+				ls2 path [watch]
+				
+				ls2 /
+			3、创建节点 -s 含有序列	-e 临时
+				create 
+				
+				create /test mytest
+			4、获得节点的值
+				get path [watch]
+				
+				get /test
+			5、设置节点的值
+				set
+				
+				set /test updatetest
+			6、查看节点的状态
+				stat
+				
+				stat /test
+			7、删除节点
+				delete
+				
+				delete /test
+			
+			8、递归删除节点
+				rmr
+				
+				rmr /test
+				
+			监听器
+				get /test watch
+				注册监听器能够在节点内容发生改变时候，向客户端发出通知。需要注意的是Zookeeper的触发器是一次性的，即触发一次后就会立即失效。
+				
+				stat /test watch 	
+					注册的监听器能够在节点状态发生改变的时候，向客户端发出通知
+				
+				ls/ls2 /test watch	
+					注册的监听器能够监听该节点下所有子节点的增加和删除操作。
+		
+			事件监听机制
+				1、watcher概念
+					Zookeeper提供了数据的发布/订阅功能，多个订阅者可同时监听某一个特定主题对象，当该主题对象的自身状态
+					发生变化时(例如节点内容改变、节点下的子节点列表改变等)，会实时、主动通知所有订阅者。
+					
+					Zookeeper采用了Watcher机制实现数据的发布/订阅功能。该机制被订阅对象发生变化时会异步通知客户端，因此客户端
+					不必在Watcher注册后轮询堵塞，从而减轻了客户端压力
+					
+				2、watcher特性
+					一次性				watcher是一次性的，一旦触发就会被移除，再次使用需要重新注册
+					
+					客户端顺序回调		watcher回调是顺序串行化执行的，只有回调后客户端才能看到最新的数据状态。
+										一个watcher回调逻辑不应该太多，以免影响别的watcher执行
+					轻量级				WatchEvent 是最小的通信单元，结构上只包含通知状态、事件类型和节点路径，
+										并不会告诉数据节点变化前后的具体内容
+								
+					时效性				watcher只有在当前session彻底失效时才会无效，若在session有效期内快速重连成功，
+										则watcher依然存在，仍然可接收到通知
+				3、Watcher事件类型
+					None					无
+					NodeCreated				监听数据节点被创建时
+					NodeDeleted				监听数据节点被删除时
+					NodeDataChanged			监听数据节点内容发生变更时
+					NodeChildrenChanged		监听数据节点的子节点列表发生变更时
+				
+		acl权限控制
+			acl权限控制，使用scheme:id:permission 来标识
+			权限模式	scheme	授权的策略
+			授权对象	id		授权的对象
+			权限		permission	授予的权限
+			
+			Zookeeper的权限控制是基于每个ZNode节点的，需要对每个节点设置权限
+			每个ZNode支持设置多种权限控制方案和多个权限
+			子节点不会继承父节点的权限，客户端无权访问某节点，但是可能可以访问它的子节点
+			
+			setAcl /test ip:172.0.0.1:crwda
+			将节点权限设置为IP 172.0.0.1的客户端对节点进行增、删、改、查、管理权限
+			
+			权限模式
+				world	只有一个用户	anyone 代表Zookeeper所有人 （默认）
+				ip		对客户端使用IP地址认证
+				auth	使用已添加认证的用户认证
+				digest	使用"用户名:密码"方式认证
+				
+			授权的权限
+				create	c	可以创建子节点
+				delete	d	可以删除子节点	仅下一级节点
+				read	r	可以读取节点数据及显示子节点列表
+				write	w	可以设置节点数据
+				admin	a	可以设置节点访问控制列表权限
+				
+			授权相关命令
+				getAcl	读取ACL权限
+				setAcl	添加ACL权限
+				addauth	添加认证用户
+				
+			案例
+			1、
+				setAcl <path> world:anyone:<acl>
+				
+				setAcl /test world:anyone:crwda
+				
+			2、
+				setAcl <path> ip:<ip>:<acl>
+				
+				setAcl /test ip:192.168.0.4:crwda
+				
+			3、
+				addauth digest <user>:<password> 添加认证用户
+				setAcl <path> auth:<user>:<acl>
+				
+				addauth digest testuser:123
+				setAcl /test auth:testuser:crwda
+		
+			4、
+				setAcl <path> digest:<user>:<password>:<acl>
+				
+			5、setAcl /test ip:192.168.0.4:crwda,auth:testuser:crwda
+			
+			6、acl超级管理员
+				Zookeeper的权限管理模式有一种叫做super，该模式提供了一个超管可以方便的访问任何权限的节点。
+		
+		源码分析
+			启动
+				QuorumPeerMain类中initializeAndRun(args)
+				1、加载配置文件	zoo.cfg
+				2、启动清除服务	主要清除旧的快照和日志文件
+				3、启动zk Zookeeper启动方式分为单机启动和集群启动
+				
+				单机启动
+					ZookeeperServerMain的initializeAndRun(args) 
+						
+						1、日志相关配置	ManagedUtil.registerLog4jMBeans()	
+						2、ServerConfig.parse(args) 解析配置文件
+						3、runFromConfig(config)	
+							1）首先开启Metrics监控
+							2）创建了FileTxtLog实例和FileSnap实例，并保存刚启动时候日志数据
+							3）启动AdminServer
+							4）启动NIOServerCnxnFactory
+								1）从解析出的配置中配置NIOServerCnxnFactory
+								2）启动ZookeeperServer
+				集群启动
+					runFromConfig(config)
+						1、日志相关配置	ManagedUtil.registerLog4jMBeans()	
+						2、创建ServerCnxnFactory
+						3、quorumPeer = getQuornumPeer()设置各类值
+						4、adminServer.start()
+						5、while(true){}
+							核心逻辑在while循环中，判断节点的状态，分为LOOKING、OBSERVING、FOLLOWING、LEADING，
+							当某个QuornumPeerq刚启动时，状态为LOOKING，启动线程将zk节点启动，然后进行leader选举。
+							这是Zookeeper的选举算法的核心，leader的选举在org.apache.zookeeper.server.quorum.FastLeaderElectionde 
+							lookForLeader方法中
+							
+							
+		Zookeeper的应用场景
+			1、配置中心
+				将配置信息存在zk的一个节点中，同时给该节点注册一个数据节点变更的watcher监听，一旦节点数据数据发生变更，
+				所有订阅该节点的客户端都可以获取数据变更通知
+			2、负载均衡
+				建立server节点，并建立监听器监视servers子节点的状态（用于在服务器增添时及时同步当前集群中服务器列表）。
+				在每个服务器启动时，在servers节点下建立具体服务器地址的子节点，并在对应的子节点下存入服务器信息。
+				这样我们在Zookeeper服务器上可以获取当前集群中的服务器列表及相关信息，可以自定义一个负载均衡算法，
+				在每个请求过来时从zookeeper服务器中获取当前集群服务器列表，根据算法选出其中一个服务器来处理请求。
+			3、命名服务
+				命名服务是分布式系统中的基本功能之一。被命名的实体通常可以是集群中的机器、提供的服务地址或者远程对象。
+				1、在Zookeeper中通过创建顺序节点就可以实现，所有客户端都会根据自己的任务类型来创建一个顺序节点，例如job-0001
+				2、节点创建完毕后，create() 接口会返回一个完整的节点名
+					拼接type类型和完整节点名作为全局唯一ID
+			4、DNS服务
+				分布式系统中，每个应用都需要分配一个域名，开发阶段可以随时修改域名和IP映射，大大提高开发的调试效率。
+				我们在zk上创建一个节点来进行域名配置。
+				
+				域名解析
+					应用解析时，首先从zk域名节点中获取域名映射的IP和端口
+				域名变更
+					每个应用都会在对应的域名节点注册一个数据变更的watcher监听，一旦监听的域名节点数据变更，
+					zk会向所有订阅的客户端发送域名变更通知。
+			5、集群管理
+				Zookeeper集群管理主要利用watcher机制和创建临时节点来实现
+
+	分布式锁
+		1、数据库实现分布式锁
+			首先我们创建一张锁表，锁表中字段设置唯一约束
+			定义锁，实现Lock接口，tryLock()尝试获取锁，从锁中查询指定的锁记录，如果查到记录，说明已经上锁，不能再上锁
+			在lock方法获取锁之前先调用tryLock()方法尝试获取锁，如果未加锁则向锁表中插入一条锁记录来获取锁
+			
+		2、redis实现分布式锁
+			redis分布式锁的实现基于setnx，设置成功，返回1，设置失败，返回0，释放锁的操作通过del指令来完成。
+			如果设置锁后在执行中间过程时，程序抛出异常，导致del指令没有调用，锁无法释放，容易陷入死锁。所以
+			我们拿到锁之后给锁加上一个过期时间。
+			
+		3、redisson实现分布式锁
+
+		4、Zookeeper实现分布式锁
+			有序临时节点+watch监听
+			Zookeeper通过创建临时序列节点来实现分布式锁，适用于顺序执行的程序。
+			大体思路就是创建临时序列节点，找出最小的序列节点，获取分布式锁，程序执行完成之后此序列节点消失，
+			通过watch监控节点变化，从剩下的节点找到最小的序列节点，获取分布式锁，执行相应处理，依次类推
+			
+			实现思路：为每一个执行的线程创建一个有序的临时节点，为了确保有序性，在创建完节点。
+				会再获取全部节点，再重新进行一次排序，排序过程中，每个线程要判断自己剩下的临时节点的
+				序号是否是最小的
+				
+				如果是最小的，将会获取锁，执行相关操作，释放锁
+				如果不是最小的，会监听前一个节点，当它的前一个节点被删除时，它就会获得所。
+				
+			1、每个客户端往/locks下创建临时有序节点/locks/locks_，创建成功后/locks下会有每个客户端对应的节点
+			如/locks/locks_00000001
+			2、客户端取得/locks下子节点，并进行排序，判断排在最前面是否为自己，如果自己的锁节点在第一位，代表获取锁成功
+			3、如果自己的锁不在第一位，则监听自己前一位的锁节点。若自己是/locks/locks_00000002，则监听/locks/locks_00000001
+			4、当前一位锁节点/locks/locks_00000001对应的客户端执行完成，释放锁，将会触发监听客户端/locks/locks_00000002的逻辑
+			5、监听客户端重新执行第2步逻辑，判断自己是否获得锁
+				
+		5、分布式队列
+			队列特性 FIFO 先入先出 Zookeeper实现分布式队列步骤
+			
+			1、在队列节点下创建临时顺序节点
+			2、调用getChildren()接口来获取/queue_info节点下所有子节点，获取队列中所有元素
+			3、比较自己节点是否是序号最小的节点，如果不是，则等待其他节点出队列。在序号最小的节点注册watcher
+			4、获取watch通知后，重复步骤
+			
+		
+		curator
+			开源的一个Zookeeper客户端，提供Zookeeper各种引用场景	分布式锁服务、集群领导选举、共享计数器、缓存机制、分布式队列
+			
+			原生ZookeeperAPI的不足
+				连接对象异步创建，需要开发人员自行编码等待
+				连接没有自动重试超时机制
+				watcher一次注册生效一次
+				不支持递归创建树形节点
+			curator特点
+				解决session会话超时重连
+				watcher反复注册
+				简化开发api
+				遵循Fluent风格API
+				提供分布式锁服务、共享计数器、缓存机制等机制
+				
+		Zookeeper监控命令
+			conf	输出相关服务配置的详细信息。比如端口、zk数据及日志配置路径，最大连接数，session超时时间、serverId
+			
+			cons	列出所有连接到这台服务器的客户端连接/会话的详细信息。包括"接受/发送"的包数据量、sessionid
+					操作延迟、最后的操作执行等信息
+			
+			crst	重置当前这台服务器所有连接/会话的统计信息
+			
+			dump	列出未经处理的会话和临时节点
+				
+			envi	输出关于服务器的环境详细信息
+			
+			ruok	测试服务器是否处于正确运行状态。如果正常返回"imok"否则返回空
+			
+			stat	输出服务器的详细信息	"接受/发送"的包数据量、连接数、模式(leader/follower)、节点总数、延迟。
+					所有客户端的列表
+			
+			srst	重置server状态
+			
+			wchs	列出服务器watches的简洁信息，连接总数、watching节点总数和watches总数
+			
+			wchc	通过session分组，列出watch的所有节点，他的输出是一个与watch相关的会话的节点列表
+			
+			wchp	通过路径分组，列出所有的watch的session id信息 
+			
+			mntr	列出集群的健康状态。"接受/发送"的包数据量、操作延迟、当前服务模式(leader/follower)、节点总数、
+					watch总数、临时节点总数
+					
+			nc命令工具
+		
+		Zookeeper图形化客户端工具
+			ZooInspector
+			
+		Zookeeper监控工具
+			taokeeper，由淘宝团队开源的zk管理中间件，安装前要求服务器先配置好nc和ssd
+			1、下载数据库脚本
+				/taokeeper/taokeeper.sql
+			2、下载主程序
+				taokeeper-monitor.tar.gz
+			3、下载配置文件
+				taokeeper-monitor-config.properties
+			4、配置taokeeper-monitor-config.properties
+			5、安装配置tomcat，修改catalina.sh
+			6、部署工程启动
